@@ -198,7 +198,7 @@
   <section class="card" id="card-upload">
     <div class="card-title">2つのPDFをアップロード</div>
     <div class="card-sub">
-      ①いつも使ってるテキストPDF（ハイライトされる側）と、②レジュメ・過去問PDF（出る所のヒント）を選んでください。
+      ①いつも使ってるテキストPDF（ハイライトされる側）と、②レジュメ・過去問PDF（出る所のヒント、複数ファイルまとめて選択可）を選んでください。
       どちらもテキストが埋め込まれたPDFのみ対応（画像スキャンPDFは非対応）。
     </div>
 
@@ -212,9 +212,9 @@
     </div>
 
     <div class="upload-row">
-      <label class="upload-label">② レジュメ・過去問PDF</label>
+      <label class="upload-label">② レジュメ・過去問PDF（複数選択可）</label>
       <label class="upload-box">
-        <input type="file" id="file-source" accept="application/pdf" />
+        <input type="file" id="file-source" accept="application/pdf" multiple />
         <span>📄</span>
         <span class="filename" id="filename-source">ファイルを選択</span>
       </label>
@@ -251,7 +251,14 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
 <script>
-  pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+  const PDFJS_VERSION = "3.11.174";
+  pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${PDFJS_VERSION}/pdf.worker.min.js`;
+  // 日本語（Adobe-Japan1等）のCIDフォント埋め込みPDFを正しく読むにはCMap設定が必須。
+  // cdnjsはcmapsフォルダをホストしていないためunpkg経由で取得する。
+  const PDF_LOAD_OPTS = {
+    cMapUrl: `https://unpkg.com/pdfjs-dist@${PDFJS_VERSION}/cmaps/`,
+    cMapPacked: true,
+  };
 
   const fileTextbookInput = document.getElementById('file-textbook');
   const fileSourceInput = document.getElementById('file-source');
@@ -269,7 +276,7 @@
   const errorBox = document.getElementById('error-box');
 
   let textbookFile = null;
-  let sourceFile = null;
+  let sourceFiles = [];
   let outputBlobUrl = null;
 
   fileTextbookInput.addEventListener('change', () => {
@@ -280,14 +287,16 @@
   });
 
   fileSourceInput.addEventListener('change', () => {
-    sourceFile = fileSourceInput.files[0] || null;
-    filenameSource.textContent = sourceFile ? sourceFile.name : 'ファイルを選択';
-    filenameSource.classList.toggle('picked', !!sourceFile);
+    sourceFiles = Array.from(fileSourceInput.files || []);
+    filenameSource.textContent = sourceFiles.length
+      ? (sourceFiles.length === 1 ? sourceFiles[0].name : `${sourceFiles.length}件のファイル`)
+      : 'ファイルを選択';
+    filenameSource.classList.toggle('picked', sourceFiles.length > 0);
     updateRunButton();
   });
 
   function updateRunButton() {
-    btnRun.disabled = !(textbookFile && sourceFile);
+    btnRun.disabled = !(textbookFile && sourceFiles.length > 0);
   }
 
   function showError(msg) {
@@ -307,10 +316,24 @@
   // ── 漢字・カタカナの連続した塊を「用語」として抽出 ──────────────
   const TERM_RUN = /[一-鿿々゠-ヿー々]{2,}/g;
 
+  // どの医学分野の講義にも出てくる一般語・スライド定型文言は除外する
+  // （頻度だけで判定すると「場合」「治療」等の一般語がノイズとして上位を占めてしまうため）
+  const STOPWORDS = new Set([
+    '場合', '必要', '症状', '患者', '存在', '効果', '重要', '程度', '出現', '低下',
+    '原因', '発生', '報告', '分類', '適応', '状態', '診断', '検査', '可能', '一般',
+    '以下', '以上', '複数', '場所', '部位', '方法', '種類', '特徴', '機能', '変化',
+    '影響', '対応', '確認', '実施', '使用', '上昇', '増加', '減少', '判断', '評価',
+    '検討', '注意', '観察', '経過', '説明', '講義', '内容', '概要', '目的', '対象',
+    '今回', '実際', '一部', '全体', '主要', '関連', '関係', '基本', '発症', '予防',
+    '合併', '治療法', '令和', '平成', '昭和', 'コース', 'チャプター', 'ページ',
+    '消化管コース', '可能性', '有無',
+  ]);
+
   function extractTermCounts(fullText) {
     const counts = {};
     const matches = fullText.match(TERM_RUN) || [];
     for (const term of matches) {
+      if (STOPWORDS.has(term)) continue;
       counts[term] = (counts[term] || 0) + 1;
     }
     return counts;
@@ -446,11 +469,14 @@
     try {
       const textbookBuf1 = await textbookFile.arrayBuffer();
       const textbookBuf2 = await textbookFile.arrayBuffer(); // pdf-lib用に別読み込み
-      const sourceBuf = await sourceFile.arrayBuffer();
 
-      setProgress(15, 'レジュメ・過去問から用語を抽出中…');
-      const sourcePdf = await pdfjsLib.getDocument({ data: sourceBuf }).promise;
-      const sourceText = await extractFullText(sourcePdf);
+      let sourceText = '';
+      for (let i = 0; i < sourceFiles.length; i++) {
+        setProgress(5 + Math.floor((i / sourceFiles.length) * 25), `レジュメ・過去問から用語を抽出中…（${i + 1}/${sourceFiles.length}件）`);
+        const buf = await sourceFiles[i].arrayBuffer();
+        const sourcePdf = await pdfjsLib.getDocument({ data: buf, ...PDF_LOAD_OPTS }).promise;
+        sourceText += await extractFullText(sourcePdf);
+      }
       const termCounts = extractTermCounts(sourceText);
       const termCount = Object.keys(termCounts).length;
 
@@ -459,7 +485,7 @@
       }
 
       setProgress(35, `教科書PDFを解析中…（用語${termCount}件抽出）`);
-      const textbookPdf = await pdfjsLib.getDocument({ data: textbookBuf1 }).promise;
+      const textbookPdf = await pdfjsLib.getDocument({ data: textbookBuf1, ...PDF_LOAD_OPTS }).promise;
       const pages = await extractLines(textbookPdf, (done, total) => {
         setProgress(35 + Math.floor((done / total) * 40), `教科書PDFを解析中…（${done}/${total}ページ）`);
       });
@@ -511,7 +537,7 @@
     fileTextbookInput.value = '';
     fileSourceInput.value = '';
     textbookFile = null;
-    sourceFile = null;
+    sourceFiles = [];
     filenameTextbook.textContent = 'ファイルを選択';
     filenameSource.textContent = 'ファイルを選択';
     filenameTextbook.classList.remove('picked');
