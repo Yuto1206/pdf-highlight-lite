@@ -15,36 +15,53 @@ const STOPWORDS = new Set([
   '合併', '治療法', '令和', '平成', '昭和', 'コース', 'チャプター', 'ページ',
   '可能性', '有無',
 ]);
-const HEADER_PREFIX_LEN = 30;
-const HEADER_MIN_PAGE_RATIO = 0.5;
-const HEADER_MIN_PAGES = 4;
+const ZONE_RATIO = 0.08;
+const ZONE_MIN_PAGE_RATIO = 0.5;
+const ZONE_MIN_PAGES = 4;
 
-function stripRunningHeader(pageTexts) {
-  if (pageTexts.length < HEADER_MIN_PAGES) return pageTexts.join('');
-  const prefixCounts = {};
-  for (const t of pageTexts) {
-    const prefix = t.slice(0, HEADER_PREFIX_LEN);
-    if (prefix.length < 10) continue;
-    prefixCounts[prefix] = (prefixCounts[prefix] || 0) + 1;
+function detectZoneTerms(pages) {
+  if (pages.length < ZONE_MIN_PAGES) return new Set();
+  const zonePageCount = {};
+  for (const pg of pages) {
+    const topThresh = pg.height * (1 - ZONE_RATIO);
+    const bottomThresh = pg.height * ZONE_RATIO;
+    const zoneItems = pg.items.filter(it => {
+      const y = it.transform[5];
+      return y >= topThresh || y <= bottomThresh;
+    });
+    const zoneText = zoneItems.map(it => it.str).join('');
+    const uniqueTerms = new Set(zoneText.match(TERM_RUN) || []);
+    for (const term of uniqueTerms) {
+      zonePageCount[term] = (zonePageCount[term] || 0) + 1;
+    }
   }
-  let headerPrefix = null;
-  for (const [prefix, count] of Object.entries(prefixCounts)) {
-    if (count / pageTexts.length >= HEADER_MIN_PAGE_RATIO) { headerPrefix = prefix; break; }
+  const zoneTerms = new Set();
+  for (const [term, count] of Object.entries(zonePageCount)) {
+    if (count / pages.length >= ZONE_MIN_PAGE_RATIO) zoneTerms.add(term);
   }
-  return pageTexts
-    .map(t => (headerPrefix && t.startsWith(headerPrefix)) ? t.slice(headerPrefix.length) : t)
-    .join('');
+  return zoneTerms;
 }
 
-function extractTermCounts(sourceTexts) {
+function extractTermCounts(sourceTexts, boilerplateTerms) {
   const counts = {};
   const fullText = sourceTexts.join('');
   const matches = fullText.match(TERM_RUN) || [];
   for (const term of matches) {
-    if (STOPWORDS.has(term)) continue;
+    if (STOPWORDS.has(term) || boilerplateTerms.has(term)) continue;
     counts[term] = (counts[term] || 0) + 1;
   }
   return counts;
+}
+
+async function extractPageGeometry(pdfDoc) {
+  const pages = [];
+  for (let p = 1; p <= pdfDoc.numPages; p++) {
+    const page = await pdfDoc.getPage(p);
+    const viewport = page.getViewport({ scale: 1 });
+    const content = await page.getTextContent();
+    pages.push({ height: viewport.height, items: content.items });
+  }
+  return pages;
 }
 
 async function extractLines(pdfDoc, onPageProgress) {
@@ -177,7 +194,7 @@ async function main() {
   console.log('--- source extracted text ---');
   console.log(JSON.stringify(sourceText));
 
-  const termCounts = extractTermCounts([sourceText]);
+  const termCounts = extractTermCounts([sourceText], new Set());
   console.log('--- term counts ---');
   console.log(termCounts);
 
