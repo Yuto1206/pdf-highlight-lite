@@ -326,11 +326,38 @@
     '検討', '注意', '観察', '経過', '説明', '講義', '内容', '概要', '目的', '対象',
     '今回', '実際', '一部', '全体', '主要', '関連', '関係', '基本', '発症', '予防',
     '合併', '治療法', '令和', '平成', '昭和', 'コース', 'チャプター', 'ページ',
-    '消化管コース', '可能性', '有無',
+    '可能性', '有無',
   ]);
 
-  function extractTermCounts(fullText) {
+  // 各ページ先頭の文字列が、同じファイル内の多数のページで一致するなら
+  // 「ページヘッダー（講座名・講師名・日付など）」とみなして本文から除去する。
+  // 内容として繰り返し出てくる用語（治療・手術等）と違い、ヘッダーはページ単位で
+  // ほぼ同じ文字列がそのまま繰り返される点で区別できる。科目名をハードコードしていないため
+  // どの科目のPDFでも同じロジックで機能する。
+  const HEADER_PREFIX_LEN = 30;
+  const HEADER_MIN_PAGE_RATIO = 0.5;
+  const HEADER_MIN_PAGES = 4;
+
+  function stripRunningHeader(pageTexts) {
+    if (pageTexts.length < HEADER_MIN_PAGES) return pageTexts.join('');
+    const prefixCounts = {};
+    for (const t of pageTexts) {
+      const prefix = t.slice(0, HEADER_PREFIX_LEN);
+      if (prefix.length < 10) continue;
+      prefixCounts[prefix] = (prefixCounts[prefix] || 0) + 1;
+    }
+    let headerPrefix = null;
+    for (const [prefix, count] of Object.entries(prefixCounts)) {
+      if (count / pageTexts.length >= HEADER_MIN_PAGE_RATIO) { headerPrefix = prefix; break; }
+    }
+    return pageTexts
+      .map(t => (headerPrefix && t.startsWith(headerPrefix)) ? t.slice(headerPrefix.length) : t)
+      .join('');
+  }
+
+  function extractTermCounts(sourceTexts) {
     const counts = {};
+    const fullText = sourceTexts.join('');
     const matches = fullText.match(TERM_RUN) || [];
     for (const term of matches) {
       if (STOPWORDS.has(term)) continue;
@@ -389,14 +416,14 @@
     return pages;
   }
 
-  async function extractFullText(pdfDoc) {
-    let text = '';
+  async function extractPageTexts(pdfDoc) {
+    const pageTexts = [];
     for (let p = 1; p <= pdfDoc.numPages; p++) {
       const page = await pdfDoc.getPage(p);
       const content = await page.getTextContent();
-      text += content.items.map(it => it.str).join('') + '\n';
+      pageTexts.push(content.items.map(it => it.str).join(''));
     }
-    return text;
+    return pageTexts;
   }
 
   // ── 教科書ページの各行に対して、用語リストを長い順にマッチング ──
@@ -470,14 +497,15 @@
       const textbookBuf1 = await textbookFile.arrayBuffer();
       const textbookBuf2 = await textbookFile.arrayBuffer(); // pdf-lib用に別読み込み
 
-      let sourceText = '';
+      const sourceTexts = [];
       for (let i = 0; i < sourceFiles.length; i++) {
         setProgress(5 + Math.floor((i / sourceFiles.length) * 25), `レジュメ・過去問から用語を抽出中…（${i + 1}/${sourceFiles.length}件）`);
         const buf = await sourceFiles[i].arrayBuffer();
         const sourcePdf = await pdfjsLib.getDocument({ data: buf, ...PDF_LOAD_OPTS }).promise;
-        sourceText += await extractFullText(sourcePdf);
+        const pageTexts = await extractPageTexts(sourcePdf);
+        sourceTexts.push(stripRunningHeader(pageTexts));
       }
-      const termCounts = extractTermCounts(sourceText);
+      const termCounts = extractTermCounts(sourceTexts);
       const termCount = Object.keys(termCounts).length;
 
       if (termCount === 0) {

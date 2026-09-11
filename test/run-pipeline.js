@@ -5,11 +5,43 @@ const { PDFDocument, rgb } = require('pdf-lib');
 
 // ── index.html と同一ロジック ──────────────────────────────
 const TERM_RUN = /[一-鿿々゠-ヿー々]{2,}/g;
+const STOPWORDS = new Set([
+  '場合', '必要', '症状', '患者', '存在', '効果', '重要', '程度', '出現', '低下',
+  '原因', '発生', '報告', '分類', '適応', '状態', '診断', '検査', '可能', '一般',
+  '以下', '以上', '複数', '場所', '部位', '方法', '種類', '特徴', '機能', '変化',
+  '影響', '対応', '確認', '実施', '使用', '上昇', '増加', '減少', '判断', '評価',
+  '検討', '注意', '観察', '経過', '説明', '講義', '内容', '概要', '目的', '対象',
+  '今回', '実際', '一部', '全体', '主要', '関連', '関係', '基本', '発症', '予防',
+  '合併', '治療法', '令和', '平成', '昭和', 'コース', 'チャプター', 'ページ',
+  '可能性', '有無',
+]);
+const HEADER_PREFIX_LEN = 30;
+const HEADER_MIN_PAGE_RATIO = 0.5;
+const HEADER_MIN_PAGES = 4;
 
-function extractTermCounts(fullText) {
+function stripRunningHeader(pageTexts) {
+  if (pageTexts.length < HEADER_MIN_PAGES) return pageTexts.join('');
+  const prefixCounts = {};
+  for (const t of pageTexts) {
+    const prefix = t.slice(0, HEADER_PREFIX_LEN);
+    if (prefix.length < 10) continue;
+    prefixCounts[prefix] = (prefixCounts[prefix] || 0) + 1;
+  }
+  let headerPrefix = null;
+  for (const [prefix, count] of Object.entries(prefixCounts)) {
+    if (count / pageTexts.length >= HEADER_MIN_PAGE_RATIO) { headerPrefix = prefix; break; }
+  }
+  return pageTexts
+    .map(t => (headerPrefix && t.startsWith(headerPrefix)) ? t.slice(headerPrefix.length) : t)
+    .join('');
+}
+
+function extractTermCounts(sourceTexts) {
   const counts = {};
+  const fullText = sourceTexts.join('');
   const matches = fullText.match(TERM_RUN) || [];
   for (const term of matches) {
+    if (STOPWORDS.has(term)) continue;
     counts[term] = (counts[term] || 0) + 1;
   }
   return counts;
@@ -145,7 +177,7 @@ async function main() {
   console.log('--- source extracted text ---');
   console.log(JSON.stringify(sourceText));
 
-  const termCounts = extractTermCounts(sourceText);
+  const termCounts = extractTermCounts([sourceText]);
   console.log('--- term counts ---');
   console.log(termCounts);
 
