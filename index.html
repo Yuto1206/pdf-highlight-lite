@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="theme-color" content="#1251A3" />
+<title>PDFハイライト ライト版</title>
+<style>
+  :root {
+    --primary: #1251A3;
+    --primary-light: #1a6fdb;
+    --primary-dark: #0d3d7a;
+    --accent: #00b4d8;
+    --bg: #f0f4fa;
+    --surface: #ffffff;
+    --text: #1a2332;
+    --text-sub: #5a6a7e;
+    --border: #dde3ee;
+    --radius: 14px;
+    --shadow: 0 2px 16px rgba(18,81,163,.10);
+    --shadow-lg: 0 8px 32px rgba(18,81,163,.16);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Yu Gothic UI', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+  }
+  header {
+    background: linear-gradient(135deg, var(--primary-dark) 0%, var(--primary-light) 100%);
+    color: #fff;
+    padding: 20px 24px 18px;
+    position: sticky; top: 0; z-index: 100;
+    box-shadow: 0 2px 12px rgba(18,81,163,.3);
+  }
+  header .inner { max-width: 640px; margin: 0 auto; display: flex; align-items: center; gap: 12px; }
+  header .logo { font-size: 1.6rem; }
+  header h1 { font-size: 1.1rem; font-weight: 700; letter-spacing: .02em; }
+  header p  { font-size: .78rem; opacity: .85; margin-top: 2px; }
+
+  main { max-width: 640px; margin: 0 auto; padding: 28px 16px 60px; }
+
+  .card {
+    background: var(--surface);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 24px;
+    margin-bottom: 20px;
+    border: 1px solid var(--border);
+  }
+  .card-title {
+    font-size: .95rem;
+    font-weight: 700;
+    color: var(--primary-dark);
+    margin-bottom: 6px;
+  }
+  .card-sub {
+    font-size: .8rem;
+    color: var(--text-sub);
+    margin-bottom: 18px;
+    line-height: 1.5;
+  }
+
+  .upload-row {
+    margin-bottom: 16px;
+  }
+  .upload-label {
+    display: block;
+    font-size: .85rem;
+    font-weight: 700;
+    margin-bottom: 8px;
+  }
+  .upload-box {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border: 1.5px dashed var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    cursor: pointer;
+    transition: border-color .15s, background .15s;
+  }
+  .upload-box:hover { border-color: var(--primary-light); background: #f7faff; }
+  .upload-box input { display: none; }
+  .upload-box .filename {
+    font-size: .85rem;
+    color: var(--text-sub);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .upload-box .filename.picked { color: var(--primary-dark); font-weight: 700; }
+
+  .tier-legend {
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+    margin-bottom: 18px;
+    font-size: .75rem;
+    color: var(--text-sub);
+  }
+  .tier-legend span { display: flex; align-items: center; gap: 5px; }
+  .swatch { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+  .swatch.y { background: #FFED33; }
+  .swatch.g { background: #66DD66; }
+  .swatch.r { background: #FF7373; }
+
+  button.action {
+    width: 100%;
+    padding: 14px 18px;
+    border-radius: 10px;
+    border: none;
+    font-size: .95rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: opacity .15s, transform .1s;
+    background: linear-gradient(135deg, var(--primary) 0%, var(--primary-light) 100%);
+    color: #fff;
+  }
+  button.action:active { transform: translateY(1px); }
+  button.action:disabled { opacity: .5; cursor: not-allowed; }
+  button.action:hover:not(:disabled) { opacity: .9; }
+
+  .btn-secondary {
+    background: var(--surface);
+    color: var(--primary-dark);
+    border: 1.5px solid var(--border) !important;
+  }
+
+  .progress-wrap { margin-top: 18px; }
+  .progress-bar-bg {
+    background: var(--bg);
+    border-radius: 999px;
+    height: 10px;
+    overflow: hidden;
+    margin-bottom: 8px;
+  }
+  .progress-bar-fill {
+    background: linear-gradient(135deg, var(--primary) 0%, var(--accent) 100%);
+    height: 100%;
+    width: 0%;
+    transition: width .2s;
+  }
+  .progress-msg { font-size: .8rem; color: var(--text-sub); }
+
+  .error-box {
+    background: #fff0f0;
+    border: 1px solid #ffc4c4;
+    color: #b23b3b;
+    border-radius: 10px;
+    padding: 12px 14px;
+    font-size: .85rem;
+    margin-top: 14px;
+  }
+
+  .result-stats {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 18px;
+  }
+  .badge {
+    display: inline-block;
+    background: var(--primary);
+    color: #fff;
+    font-size: .8rem;
+    font-weight: 700;
+    padding: 6px 14px;
+    border-radius: 999px;
+  }
+  .badge.sub { background: var(--accent); }
+
+  .note {
+    font-size: .75rem;
+    color: var(--text-sub);
+    line-height: 1.6;
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+  }
+
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<header>
+  <div class="inner">
+    <span class="logo">✏️</span>
+    <div>
+      <h1>PDFハイライト ライト版</h1>
+      <p>AI不使用・完全無料・データは外部送信されません</p>
+    </div>
+  </div>
+</header>
+
+<main>
+  <section class="card" id="card-upload">
+    <div class="card-title">2つのPDFをアップロード</div>
+    <div class="card-sub">
+      ①いつも使ってるテキストPDF（ハイライトされる側）と、②レジュメ・過去問PDF（出る所のヒント）を選んでください。
+      どちらもテキストが埋め込まれたPDFのみ対応（画像スキャンPDFは非対応）。
+    </div>
+
+    <div class="upload-row">
+      <label class="upload-label">① 教科書・テキストPDF</label>
+      <label class="upload-box">
+        <input type="file" id="file-textbook" accept="application/pdf" />
+        <span>📄</span>
+        <span class="filename" id="filename-textbook">ファイルを選択</span>
+      </label>
+    </div>
+
+    <div class="upload-row">
+      <label class="upload-label">② レジュメ・過去問PDF</label>
+      <label class="upload-box">
+        <input type="file" id="file-source" accept="application/pdf" />
+        <span>📄</span>
+        <span class="filename" id="filename-source">ファイルを選択</span>
+      </label>
+    </div>
+
+    <div class="tier-legend">
+      <span><span class="swatch y"></span>1回登場</span>
+      <span><span class="swatch g"></span>3回以上</span>
+      <span><span class="swatch r"></span>5回以上</span>
+    </div>
+
+    <button class="action" id="btn-run" disabled>ハイライトを実行</button>
+
+    <div class="progress-wrap hidden" id="progress-wrap">
+      <div class="progress-bar-bg"><div class="progress-bar-fill" id="progress-bar"></div></div>
+      <div class="progress-msg" id="progress-msg">処理中…</div>
+    </div>
+
+    <div class="error-box hidden" id="error-box"></div>
+
+    <div class="note">
+      仕組み：レジュメ・過去問PDFから漢字・カタカナの用語を抽出し、出現回数をカウント。教科書PDF内で同じ文字列を探してハイライトします。AI（意味理解）は使っていないため、表記揺れ（略語・同義語）には対応していません。
+    </div>
+  </section>
+
+  <section class="card hidden" id="card-result">
+    <div class="card-title">完了</div>
+    <div class="result-stats" id="result-stats"></div>
+    <button class="action" id="btn-download">⬇️ ハイライト済みPDFをダウンロード</button>
+    <button class="action btn-secondary" id="btn-reset" style="margin-top:10px;">← もう一度</button>
+  </section>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<script>
+  pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+  const fileTextbookInput = document.getElementById('file-textbook');
+  const fileSourceInput = document.getElementById('file-source');
+  const filenameTextbook = document.getElementById('filename-textbook');
+  const filenameSource = document.getElementById('filename-source');
+  const btnRun = document.getElementById('btn-run');
+  const btnDownload = document.getElementById('btn-download');
+  const btnReset = document.getElementById('btn-reset');
+  const cardUpload = document.getElementById('card-upload');
+  const cardResult = document.getElementById('card-result');
+  const resultStats = document.getElementById('result-stats');
+  const progressWrap = document.getElementById('progress-wrap');
+  const progressBar = document.getElementById('progress-bar');
+  const progressMsg = document.getElementById('progress-msg');
+  const errorBox = document.getElementById('error-box');
+
+  let textbookFile = null;
+  let sourceFile = null;
+  let outputBlobUrl = null;
+
+  fileTextbookInput.addEventListener('change', () => {
+    textbookFile = fileTextbookInput.files[0] || null;
+    filenameTextbook.textContent = textbookFile ? textbookFile.name : 'ファイルを選択';
+    filenameTextbook.classList.toggle('picked', !!textbookFile);
+    updateRunButton();
+  });
+
+  fileSourceInput.addEventListener('change', () => {
+    sourceFile = fileSourceInput.files[0] || null;
+    filenameSource.textContent = sourceFile ? sourceFile.name : 'ファイルを選択';
+    filenameSource.classList.toggle('picked', !!sourceFile);
+    updateRunButton();
+  });
+
+  function updateRunButton() {
+    btnRun.disabled = !(textbookFile && sourceFile);
+  }
+
+  function showError(msg) {
+    errorBox.textContent = msg;
+    errorBox.classList.remove('hidden');
+  }
+  function clearError() {
+    errorBox.classList.add('hidden');
+    errorBox.textContent = '';
+  }
+  function setProgress(pct, msg) {
+    progressWrap.classList.remove('hidden');
+    progressBar.style.width = pct + '%';
+    progressMsg.textContent = msg;
+  }
+
+  // ── 漢字・カタカナの連続した塊を「用語」として抽出 ──────────────
+  const TERM_RUN = /[一-鿿々゠-ヿー々]{2,}/g;
+
+  function extractTermCounts(fullText) {
+    const counts = {};
+    const matches = fullText.match(TERM_RUN) || [];
+    for (const term of matches) {
+      counts[term] = (counts[term] || 0) + 1;
+    }
+    return counts;
+  }
+
+  // ── PDFの各ページを「行」単位に分解し、文字ごとの座標を持たせる ──
+  async function extractLines(pdfDoc, onPageProgress) {
+    const pages = [];
+    for (let p = 1; p <= pdfDoc.numPages; p++) {
+      const page = await pdfDoc.getPage(p);
+      const content = await page.getTextContent();
+
+      const charRecords = [];
+      for (const item of content.items) {
+        const str = item.str;
+        if (!str) continue;
+        const tx = item.transform;
+        const x0 = tx[4];
+        const y0 = tx[5];
+        const totalWidth = item.width || 0;
+        const height = item.height || Math.abs(tx[3]) || 10;
+        const n = str.length;
+        const charWidth = n > 0 ? totalWidth / n : 0;
+        for (let i = 0; i < n; i++) {
+          charRecords.push({
+            ch: str[i],
+            x: x0 + charWidth * i,
+            y: y0,
+            width: charWidth,
+            height: height,
+          });
+        }
+      }
+
+      charRecords.sort((a, b) => (b.y - a.y) || (a.x - b.x));
+      const Y_TOL = 2.5;
+      const lines = [];
+      for (const rec of charRecords) {
+        let line = lines.length ? lines[lines.length - 1] : null;
+        if (!line || Math.abs(line.y - rec.y) > Y_TOL) {
+          line = { y: rec.y, chars: [] };
+          lines.push(line);
+        }
+        line.chars.push(rec);
+      }
+      for (const line of lines) {
+        line.chars.sort((a, b) => a.x - b.x);
+        line.text = line.chars.map(c => c.ch).join('');
+      }
+      pages.push({ pageNum: p, lines });
+      if (onPageProgress) onPageProgress(p, pdfDoc.numPages);
+    }
+    return pages;
+  }
+
+  async function extractFullText(pdfDoc) {
+    let text = '';
+    for (let p = 1; p <= pdfDoc.numPages; p++) {
+      const page = await pdfDoc.getPage(p);
+      const content = await page.getTextContent();
+      text += content.items.map(it => it.str).join('') + '\n';
+    }
+    return text;
+  }
+
+  // ── 教科書ページの各行に対して、用語リストを長い順にマッチング ──
+  function findMatches(pages, termCounts) {
+    const terms = Object.keys(termCounts).sort((a, b) => b.length - a.length);
+    const matches = [];
+    for (const page of pages) {
+      for (const line of page.lines) {
+        const text = line.text;
+        const claimed = new Array(text.length).fill(false);
+        for (const term of terms) {
+          let idx = 0;
+          while ((idx = text.indexOf(term, idx)) !== -1) {
+            const end = idx + term.length;
+            let overlap = false;
+            for (let k = idx; k < end; k++) { if (claimed[k]) { overlap = true; break; } }
+            if (!overlap) {
+              for (let k = idx; k < end; k++) claimed[k] = true;
+              const startChar = line.chars[idx];
+              const endChar = line.chars[end - 1];
+              matches.push({
+                pageNum: page.pageNum,
+                x: startChar.x,
+                y: startChar.y,
+                width: (endChar.x + endChar.width) - startChar.x,
+                height: Math.max(startChar.height, endChar.height),
+                term,
+                count: termCounts[term],
+              });
+            }
+            idx += 1;
+          }
+        }
+      }
+    }
+    return matches;
+  }
+
+  function tierColor(count) {
+    if (count >= 5) return { r: 1, g: 0.45, b: 0.45 };
+    if (count >= 3) return { r: 0.4, g: 0.87, b: 0.4 };
+    return { r: 1, g: 0.93, b: 0.2 };
+  }
+
+  async function generateHighlightedPdf(originalArrayBuffer, matches) {
+    const { PDFDocument, rgb } = PDFLib;
+    const pdfDoc = await PDFDocument.load(originalArrayBuffer);
+    const pages = pdfDoc.getPages();
+    for (const m of matches) {
+      const page = pages[m.pageNum - 1];
+      if (!page) continue;
+      const color = tierColor(m.count);
+      page.drawRectangle({
+        x: m.x,
+        y: m.y - 1,
+        width: Math.max(m.width, 2),
+        height: m.height + 3,
+        color: rgb(color.r, color.g, color.b),
+        opacity: 0.45,
+      });
+    }
+    return await pdfDoc.save();
+  }
+
+  async function run() {
+    clearError();
+    btnRun.disabled = true;
+    setProgress(5, 'PDFを読み込み中…');
+
+    try {
+      const textbookBuf1 = await textbookFile.arrayBuffer();
+      const textbookBuf2 = await textbookFile.arrayBuffer(); // pdf-lib用に別読み込み
+      const sourceBuf = await sourceFile.arrayBuffer();
+
+      setProgress(15, 'レジュメ・過去問から用語を抽出中…');
+      const sourcePdf = await pdfjsLib.getDocument({ data: sourceBuf }).promise;
+      const sourceText = await extractFullText(sourcePdf);
+      const termCounts = extractTermCounts(sourceText);
+      const termCount = Object.keys(termCounts).length;
+
+      if (termCount === 0) {
+        throw new Error('レジュメ・過去問PDFからテキストを抽出できませんでした。テキスト埋め込みPDFか確認してください（画像スキャンPDFは非対応）。');
+      }
+
+      setProgress(35, `教科書PDFを解析中…（用語${termCount}件抽出）`);
+      const textbookPdf = await pdfjsLib.getDocument({ data: textbookBuf1 }).promise;
+      const pages = await extractLines(textbookPdf, (done, total) => {
+        setProgress(35 + Math.floor((done / total) * 40), `教科書PDFを解析中…（${done}/${total}ページ）`);
+      });
+
+      const totalChars = pages.reduce((sum, pg) => sum + pg.lines.reduce((s, l) => s + l.text.length, 0), 0);
+      if (totalChars === 0) {
+        throw new Error('教科書PDFからテキストを抽出できませんでした。テキスト埋め込みPDFか確認してください（画像スキャンPDFは非対応）。');
+      }
+
+      setProgress(80, 'マッチング中…');
+      const matches = findMatches(pages, termCounts);
+
+      setProgress(92, 'ハイライトPDFを生成中…');
+      const outBytes = await generateHighlightedPdf(textbookBuf2, matches);
+
+      setProgress(100, '完了！');
+      const blob = new Blob([outBytes], { type: 'application/pdf' });
+      if (outputBlobUrl) URL.revokeObjectURL(outputBlobUrl);
+      outputBlobUrl = URL.createObjectURL(blob);
+
+      const uniqueTerms = new Set(matches.map(m => m.term)).size;
+      resultStats.innerHTML =
+        `<span class="badge">${matches.length}箇所ハイライト</span>` +
+        `<span class="badge sub">${uniqueTerms}種類の用語</span>`;
+
+      cardUpload.classList.add('hidden');
+      cardResult.classList.remove('hidden');
+    } catch (e) {
+      showError('エラーが発生しました: ' + e.message);
+      progressWrap.classList.add('hidden');
+      btnRun.disabled = false;
+    }
+  }
+
+  btnRun.addEventListener('click', run);
+
+  btnDownload.addEventListener('click', () => {
+    if (!outputBlobUrl) return;
+    const a = document.createElement('a');
+    a.href = outputBlobUrl;
+    a.download = 'highlighted.pdf';
+    a.click();
+  });
+
+  btnReset.addEventListener('click', () => {
+    cardResult.classList.add('hidden');
+    cardUpload.classList.remove('hidden');
+    progressWrap.classList.add('hidden');
+    fileTextbookInput.value = '';
+    fileSourceInput.value = '';
+    textbookFile = null;
+    sourceFile = null;
+    filenameTextbook.textContent = 'ファイルを選択';
+    filenameSource.textContent = 'ファイルを選択';
+    filenameTextbook.classList.remove('picked');
+    filenameSource.classList.remove('picked');
+    updateRunButton();
+  });
+</script>
+</body>
+</html>
