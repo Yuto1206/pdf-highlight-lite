@@ -92,19 +92,45 @@
   }
   .upload-box .filename.picked { color: var(--primary-dark); font-weight: 700; }
 
-  .tier-legend {
-    display: flex;
-    gap: 14px;
-    flex-wrap: wrap;
+  .tier-settings {
     margin-bottom: 18px;
-    font-size: .75rem;
-    color: var(--text-sub);
+    padding: 14px 16px;
+    background: var(--bg);
+    border-radius: 10px;
+    border: 1px solid var(--border);
   }
-  .tier-legend span { display: flex; align-items: center; gap: 5px; }
-  .swatch { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
-  .swatch.y { background: #FFED33; }
-  .swatch.g { background: #66DD66; }
-  .swatch.r { background: #FF7373; }
+  .tier-settings-title {
+    font-size: .8rem;
+    font-weight: 700;
+    color: var(--text-sub);
+    margin-bottom: 10px;
+  }
+  .tier-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+    font-size: .85rem;
+  }
+  .tier-row:last-child { margin-bottom: 0; }
+  .tier-row input[type="number"] {
+    width: 56px;
+    padding: 6px 8px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: .85rem;
+    font-family: inherit;
+  }
+  .tier-row input[type="color"] {
+    width: 34px;
+    height: 28px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0;
+    cursor: pointer;
+    background: none;
+  }
+  .tier-row .tier-label { color: var(--text-sub); }
 
   button.action {
     width: 100%;
@@ -220,10 +246,23 @@
       </label>
     </div>
 
-    <div class="tier-legend">
-      <span><span class="swatch y"></span>1回登場</span>
-      <span><span class="swatch g"></span>3回以上</span>
-      <span><span class="swatch r"></span>5回以上</span>
+    <div class="tier-settings">
+      <div class="tier-settings-title">ハイライト設定（出現回数のしきい値と色）</div>
+      <div class="tier-row">
+        <input type="number" class="tier-count" min="1" value="1" />
+        <span class="tier-label">回以上で</span>
+        <input type="color" class="tier-color" value="#ffed33" />
+      </div>
+      <div class="tier-row">
+        <input type="number" class="tier-count" min="1" value="3" />
+        <span class="tier-label">回以上で</span>
+        <input type="color" class="tier-color" value="#66dd66" />
+      </div>
+      <div class="tier-row">
+        <input type="number" class="tier-count" min="1" value="5" />
+        <span class="tier-label">回以上で</span>
+        <input type="color" class="tier-color" value="#ff7373" />
+      </div>
     </div>
 
     <button class="action" id="btn-run" disabled>ハイライトを実行</button>
@@ -471,20 +510,44 @@
     return matches;
   }
 
-  function tierColor(count) {
-    if (count >= 5) return { r: 1, g: 0.45, b: 0.45 };
-    if (count >= 3) return { r: 0.4, g: 0.87, b: 0.4 };
-    return { r: 1, g: 0.93, b: 0.2 };
+  function hexToRgb01(hex) {
+    const h = hex.replace('#', '');
+    return {
+      r: parseInt(h.slice(0, 2), 16) / 255,
+      g: parseInt(h.slice(2, 4), 16) / 255,
+      b: parseInt(h.slice(4, 6), 16) / 255,
+    };
   }
 
-  async function generateHighlightedPdf(originalArrayBuffer, matches) {
+  // 画面のティア設定（出現回数のしきい値・色）を読み取る。回数が大きい順に並べ、
+  // マッチ回数が最初に条件を満たしたティアの色を採用する。
+  function getTierSettings() {
+    const rows = document.querySelectorAll('.tier-row');
+    const tiers = [];
+    rows.forEach(row => {
+      const count = Math.max(1, parseInt(row.querySelector('.tier-count').value, 10) || 1);
+      const color = row.querySelector('.tier-color').value;
+      tiers.push({ minCount: count, color: hexToRgb01(color) });
+    });
+    tiers.sort((a, b) => b.minCount - a.minCount);
+    return tiers;
+  }
+
+  function tierColor(count, tiers) {
+    for (const t of tiers) {
+      if (count >= t.minCount) return t.color;
+    }
+    return tiers[tiers.length - 1].color;
+  }
+
+  async function generateHighlightedPdf(originalArrayBuffer, matches, tiers) {
     const { PDFDocument, rgb } = PDFLib;
     const pdfDoc = await PDFDocument.load(originalArrayBuffer);
     const pages = pdfDoc.getPages();
     for (const m of matches) {
       const page = pages[m.pageNum - 1];
       if (!page) continue;
-      const color = tierColor(m.count);
+      const color = tierColor(m.count, tiers);
       page.drawRectangle({
         x: m.x,
         y: m.y - 1,
@@ -538,7 +601,8 @@
       const matches = findMatches(pages, termCounts);
 
       setProgress(92, 'ハイライトPDFを生成中…');
-      const outBytes = await generateHighlightedPdf(textbookBuf2, matches);
+      const tiers = getTierSettings();
+      const outBytes = await generateHighlightedPdf(textbookBuf2, matches, tiers);
 
       setProgress(100, '完了！');
       const blob = new Blob([outBytes], { type: 'application/pdf' });
